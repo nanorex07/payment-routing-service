@@ -3,7 +3,18 @@
 Dynamic payment gateway routing service written in Go. The service routes payment transactions across Razorpay, PayU, and Cashfree using weighted routing, live gateway health, sliding-window metrics, and a cooldown circuit breaker.
 
 A test deployment is deployed on Render.com: 
-- [https://payment-routing-service.onrender.com](https://payment-routing-service.onrender.com)
+- [https://payment-routing-service.onrender.com/docs](https://payment-routing-service.onrender.com/docs)
+
+**Table of Contents**
+
+- [Run](#run)
+- [Low-Level Design](#low-level-design)
+- [APIs](#apis)
+- [Routing Rules](#routing-rules)
+- [Metrics Store](#metrics-store)
+- [Integration Tests](#integration-tests)
+- [Other Test Coverage](#other-test-coverage)
+- [Mocked Components](#mocked-components)
 
 ## Run
 
@@ -29,7 +40,7 @@ Race checks used for concurrency-sensitive adapters:
 ```sh
 go test -race ./internal/adapters/memory ./internal/adapters/http
 ```
-
+---
 ## Low-Level Design
 
 The service uses hexagonal architecture. Core routing and payment use cases live in `internal/service`; external details live behind ports in `internal/ports` and adapters in `internal/adapters`.
@@ -145,7 +156,7 @@ flowchart TB
     GM3 --> B3[fixed buckets<br/>15 x 1-minute slots]
     GM3 --> C3[blocked_until]
 ```
-
+---
 ## APIs
 
 Base URL for local runs:
@@ -370,6 +381,7 @@ Callback matching rule:
 - The callback gateway must match the transaction gateway.
 - Callback status must normalize to `success` or `failure`.
 
+---
 ## Routing Rules
 
 Default gateway weights:
@@ -394,7 +406,7 @@ Weighted routing example with default weights:
 - Random pick `0-49` selects Razorpay.
 - Random pick `50-79` selects PayU.
 - Random pick `80-99` selects Cashfree.
-
+---
 ## Metrics Store
 
 The metrics store tracks recent gateway success/failure rates and owns circuit-breaker state. It is in-memory for this version, but it is isolated behind the `MetricsStore` port.
@@ -487,7 +499,7 @@ After bucket counts are summed:
 4. Otherwise gateway is healthy.
 
 For default config, a gateway needs at least 10 callback samples before it can be blocked. If its success rate is below 90%, routing excludes it for 30 minutes.
-
+---
 ## Integration Tests
 
 ### Gateway Outage Stops Selecting Gateway
@@ -540,7 +552,7 @@ What it protects:
 - Final snapshots reflect all callback writes.
 
 ## Other Test Coverage
-
+---
 ### Routing Tests
 
 `TestSelectWeighted` checks cumulative weighted selection boundaries:
@@ -587,7 +599,7 @@ What it protects:
 ### Gateway Parser Tests
 
 `TestMockGatewayParsesProviderSpecificCallbacks` verifies Razorpay, PayU, and Cashfree provider-shaped payloads normalize into one `CallbackResult` domain shape.
-
+---
 ## Mocked Components
 
 This service intentionally mocks external infrastructure so routing behavior is easy to run and test locally.
