@@ -22,10 +22,24 @@ func NewHandler(service ports.PaymentService, timeout time.Duration) *Handler {
 
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /docs", h.docs)
+	mux.HandleFunc("GET /openapi.json", h.openapi)
 	mux.HandleFunc("GET /healthz", h.health)
 	mux.HandleFunc("POST /transactions/initiate", h.initiate)
 	mux.HandleFunc("POST /transactions/callback", h.callback)
 	return requestLogMiddleware(mux)
+}
+
+func (h *Handler) docs(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(docsHTML))
+}
+
+func (h *Handler) openapi(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/vnd.oai.openapi+json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(openAPISpec))
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {

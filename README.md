@@ -2,6 +2,9 @@
 
 Dynamic payment gateway routing service written in Go. The service routes payment transactions across Razorpay, PayU, and Cashfree using weighted routing, live gateway health, sliding-window metrics, and a cooldown circuit breaker.
 
+A test deployment is deployed on Render.com: 
+- [https://payment-routing-service.onrender.com](https://payment-routing-service.onrender.com)
+
 ## Run
 
 ```sh
@@ -150,6 +153,22 @@ Base URL for local runs:
 ```http
 @baseUrl = http://localhost:8080
 ```
+
+Interactive Redoc API docs and raw OpenAPI spec are served by the app:
+
+```http
+### Redoc API docs
+GET {{baseUrl}}/docs
+
+### raw OpenAPI specification
+GET {{baseUrl}}/openapi.json
+```
+
+The OpenAPI spec documents the three service endpoints:
+
+- `GET /healthz`
+- `POST /transactions/initiate`
+- `POST /transactions/callback`
 
 ### Health Check
 
