@@ -18,13 +18,14 @@ type MetricsConfig struct {
 }
 
 type MetricsStore struct {
-	mu       sync.RWMutex
+	mu       sync.RWMutex // protects gateways map only
 	clock    service.Clock
 	config   MetricsConfig
 	gateways map[domain.GatewayName]*gatewayMetrics
 }
 
 type gatewayMetrics struct {
+	mu           sync.Mutex
 	buckets      []metricBucket
 	blockedUntil time.Time
 }
@@ -54,19 +55,19 @@ func DefaultMetricsConfig() MetricsConfig {
 }
 
 func (s *MetricsStore) Record(_ context.Context, gateway domain.GatewayName, success bool) (domain.MetricsSnapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	now := s.clock.Now()
 	metrics := s.getOrCreate(gateway)
+	metrics.mu.Lock()
+	defer metrics.mu.Unlock()
 	s.addSample(metrics, now, success)
 	return s.evaluateLocked(gateway, metrics, now), nil
 }
 
 func (s *MetricsStore) Snapshot(_ context.Context, gateway domain.GatewayName) (domain.MetricsSnapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	now := s.clock.Now()
 	metrics := s.getOrCreate(gateway)
+	metrics.mu.Lock()
+	defer metrics.mu.Unlock()
 	return s.evaluateLocked(gateway, metrics, now), nil
 }
 
@@ -152,7 +153,17 @@ func (s *MetricsStore) bucketIndex(now time.Time) int {
 }
 
 func (s *MetricsStore) getOrCreate(gateway domain.GatewayName) *gatewayMetrics {
+	s.mu.RLock()
 	metrics, exists := s.gateways[gateway]
+	if exists {
+		s.mu.RUnlock()
+		return metrics
+	}
+	s.mu.RUnlock()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	metrics, exists = s.gateways[gateway]
 	if exists {
 		return metrics
 	}
