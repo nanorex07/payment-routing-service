@@ -26,9 +26,9 @@ func New() *App {
 	metrics := memory.NewMetricsStore(clock, memory.DefaultMetricsConfig())
 	gateways := DefaultGateways()
 	clients := []ports.GatewayClient{
-		gateway.NewMockGateway(domain.GatewayRazorpay, 0.98),
-		gateway.NewMockGateway(domain.GatewayPayU, 0.96),
-		gateway.NewMockGateway(domain.GatewayCashfree, 0.95),
+		gateway.NewMockGateway(domain.GatewayRazorpay),
+		gateway.NewMockGateway(domain.GatewayPayU),
+		gateway.NewMockGateway(domain.GatewayCashfree),
 	}
 	parser := callback.NewParser(clients)
 	paymentService := service.NewPaymentService(

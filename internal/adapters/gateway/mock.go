@@ -3,21 +3,17 @@ package gateway
 import (
 	"context"
 	"encoding/json"
-	"math/rand/v2"
 	"strings"
-	"sync"
 
 	"payment-routing-service/internal/domain"
 )
 
 type MockGateway struct {
-	name        domain.GatewayName
-	successRate float64
-	mu          sync.Mutex
+	name domain.GatewayName
 }
 
-func NewMockGateway(name domain.GatewayName, successRate float64) *MockGateway {
-	return &MockGateway{name: name, successRate: successRate}
+func NewMockGateway(name domain.GatewayName) *MockGateway {
+	return &MockGateway{name: name}
 }
 
 func (g *MockGateway) Name() domain.GatewayName {
@@ -25,9 +21,6 @@ func (g *MockGateway) Name() domain.GatewayName {
 }
 
 func (g *MockGateway) Initiate(_ context.Context, _ *domain.Transaction) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	_ = rand.Float64() < g.successRate
 	return nil
 }
 

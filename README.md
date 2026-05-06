@@ -639,6 +639,13 @@ What they do:
 - Own provider-specific callback parsing.
 - Normalize provider callback payloads into `domain.CallbackResult`.
 
+What they do not do:
+
+- They do not own any configured success-rate parameter.
+- They do not randomly mark payments as success or failure during initiate.
+- Gateway health is derived only from callback metrics recorded in `MetricsStore`.
+- `success_rate` in API responses/logs is computed on demand from recent callback counts.
+
 Current limitation:
 
 - No real provider authentication.
@@ -693,4 +700,3 @@ Tests use fakes for:
 - gateway clients: local parser/initiate behavior without network
 
 These are test-only replacements used to make assertions exact and repeatable.
-
