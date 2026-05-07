@@ -6,9 +6,12 @@ services:
       - "8080:8080"
     environment:
       PORT: "8080"
+      REDIS_ADDR: "redis:6379"
     volumes:
       - .:/app
       - go-mod-cache:/go/pkg/mod
+    depends_on:
+      - redis
     command: go run ./cmd/api
 
   test:
@@ -18,6 +21,11 @@ services:
       - .:/app
       - go-mod-cache:/go/pkg/mod
     command: go test ./...
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
 
 volumes:
   go-mod-cache:

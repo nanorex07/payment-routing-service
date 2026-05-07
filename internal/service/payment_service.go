@@ -72,18 +72,18 @@ func (s *PaymentService) InitiateTransaction(ctx context.Context, req domain.Ini
 		if !gw.Enabled {
 			continue
 		}
-		snapshot, err := s.metrics.Snapshot(ctx, gw.Name)
+		blockStatus, err := s.metrics.BlockStatus(ctx, gw.Name)
 		if err != nil {
 			return nil, err
 		}
-		if snapshot.Healthy {
+		if !blockStatus.Blocked {
 			healthy = append(healthy, gw)
-			s.logger.Info(ctx, "gateway eligible", slog.String("order_id", req.OrderID), slog.String("gateway", string(gw.Name)), slog.Float64("success_rate", snapshot.SuccessRate), slog.Int("sample_count", snapshot.Total))
+			s.logger.Info(ctx, "gateway eligible", slog.String("order_id", req.OrderID), slog.String("gateway", string(gw.Name)))
 			continue
 		}
-		attrs := []any{slog.String("order_id", req.OrderID), slog.String("gateway", string(gw.Name)), slog.String("decision", "skip_unhealthy"), slog.String("reason", snapshot.Reason), slog.Float64("success_rate", snapshot.SuccessRate), slog.Int("sample_count", snapshot.Total)}
-		if snapshot.BlockedUntil != nil {
-			attrs = append(attrs, slog.Time("blocked_until", *snapshot.BlockedUntil))
+		attrs := []any{slog.String("order_id", req.OrderID), slog.String("gateway", string(gw.Name)), slog.String("decision", "skip_blocked"), slog.String("reason", blockStatus.Reason)}
+		if blockStatus.BlockedUntil != nil {
+			attrs = append(attrs, slog.Time("blocked_until", *blockStatus.BlockedUntil))
 		}
 		s.logger.Info(ctx, "gateway skipped", attrs...)
 	}

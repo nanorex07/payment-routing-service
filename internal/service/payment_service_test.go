@@ -125,6 +125,49 @@ func TestInitiateRejectsDuplicateOrderID(t *testing.T) {
 	}
 }
 
+func TestInitiateReadsBlockStatusWithoutSnapshot(t *testing.T) {
+	clock := &mutableClock{now: time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC)}
+	repo := memory.NewTransactionRepository()
+	metrics := &initiateMetricsStore{
+		blocked: map[domain.GatewayName]bool{
+			domain.GatewayRazorpay: true,
+		},
+	}
+	clients := []ports.GatewayClient{
+		testGatewayClient{name: domain.GatewayRazorpay},
+		testGatewayClient{name: domain.GatewayPayU},
+	}
+	svc := service.NewPaymentService(
+		repo,
+		metrics,
+		[]domain.Gateway{
+			{Name: domain.GatewayRazorpay, Weight: 1, Enabled: true},
+			{Name: domain.GatewayPayU, Weight: 1, Enabled: true},
+		},
+		clients,
+		callback.NewParser(clients),
+		nopLogger{},
+		clock,
+		&seqID{},
+		fixedRandom{value: 0},
+	)
+
+	res, err := svc.InitiateTransaction(context.Background(), domain.InitiateRequest{
+		OrderID:           "ORD-BLOCK-STATUS",
+		Amount:            499,
+		PaymentInstrument: domain.PaymentInstrument{Type: "card"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Transaction.Gateway != domain.GatewayPayU {
+		t.Fatalf("got gateway %s want payu", res.Transaction.Gateway)
+	}
+	if metrics.snapshotCalled {
+		t.Fatal("initiate should not read metrics snapshots")
+	}
+}
+
 func TestCallbackUpdatesStatusAndMetrics(t *testing.T) {
 	clock := &mutableClock{now: time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC)}
 	svc, _ := newTestService(clock, fixedRandom{value: 0})
@@ -150,4 +193,25 @@ func TestCallbackUpdatesStatusAndMetrics(t *testing.T) {
 	if callbackRes.Metrics.Successes != 1 || callbackRes.Metrics.Failures != 0 {
 		t.Fatalf("bad metrics: %+v", callbackRes.Metrics)
 	}
+}
+
+type initiateMetricsStore struct {
+	blocked        map[domain.GatewayName]bool
+	snapshotCalled bool
+}
+
+func (s *initiateMetricsStore) Record(context.Context, domain.GatewayName, bool) (domain.MetricsSnapshot, error) {
+	return domain.MetricsSnapshot{}, nil
+}
+
+func (s *initiateMetricsStore) BlockStatus(_ context.Context, gateway domain.GatewayName) (domain.GatewayBlockStatus, error) {
+	if s.blocked[gateway] {
+		return domain.GatewayBlockStatus{Gateway: gateway, Blocked: true, Reason: "cooldown_active"}, nil
+	}
+	return domain.GatewayBlockStatus{Gateway: gateway}, nil
+}
+
+func (s *initiateMetricsStore) Snapshot(context.Context, domain.GatewayName) (domain.MetricsSnapshot, error) {
+	s.snapshotCalled = true
+	return domain.MetricsSnapshot{Healthy: true}, nil
 }

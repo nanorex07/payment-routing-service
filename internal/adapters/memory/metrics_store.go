@@ -5,17 +5,12 @@ import (
 	"sync"
 	"time"
 
+	metricsconfig "payment-routing-service/internal/adapters/metrics"
 	"payment-routing-service/internal/domain"
 	"payment-routing-service/internal/service"
 )
 
-type MetricsConfig struct {
-	WindowSize     int
-	BucketDuration time.Duration
-	Threshold      float64
-	MinSamples     int
-	Cooldown       time.Duration
-}
+type MetricsConfig = metricsconfig.Config
 
 type MetricsStore struct {
 	mu       sync.RWMutex // protects gateways map only
@@ -45,13 +40,7 @@ func NewMetricsStore(clock service.Clock, config MetricsConfig) *MetricsStore {
 }
 
 func DefaultMetricsConfig() MetricsConfig {
-	return MetricsConfig{
-		WindowSize:     15,
-		BucketDuration: time.Minute,
-		Threshold:      0.90,
-		MinSamples:     10,
-		Cooldown:       30 * time.Minute,
-	}
+	return metricsconfig.DefaultConfig()
 }
 
 func (s *MetricsStore) Record(_ context.Context, gateway domain.GatewayName, success bool) (domain.MetricsSnapshot, error) {
@@ -60,7 +49,32 @@ func (s *MetricsStore) Record(_ context.Context, gateway domain.GatewayName, suc
 	metrics.mu.Lock()
 	defer metrics.mu.Unlock()
 	s.addSample(metrics, now, success)
-	return s.evaluateLocked(gateway, metrics, now), nil
+	return s.evaluateLocked(gateway, metrics, now, true), nil
+}
+
+func (s *MetricsStore) BlockStatus(_ context.Context, gateway domain.GatewayName) (domain.GatewayBlockStatus, error) {
+	now := s.clock.Now()
+	metrics := s.get(gateway)
+	if metrics == nil {
+		return domain.GatewayBlockStatus{Gateway: gateway}, nil
+	}
+
+	metrics.mu.Lock()
+	defer metrics.mu.Unlock()
+	if metrics.blockedUntil.IsZero() {
+		return domain.GatewayBlockStatus{Gateway: gateway}, nil
+	}
+	if now.Before(metrics.blockedUntil) {
+		blockedUntil := metrics.blockedUntil
+		return domain.GatewayBlockStatus{
+			Gateway:      gateway,
+			Blocked:      true,
+			BlockedUntil: &blockedUntil,
+			Reason:       "cooldown_active",
+		}, nil
+	}
+	metrics.blockedUntil = time.Time{}
+	return domain.GatewayBlockStatus{Gateway: gateway}, nil
 }
 
 func (s *MetricsStore) Snapshot(_ context.Context, gateway domain.GatewayName) (domain.MetricsSnapshot, error) {
@@ -68,7 +82,7 @@ func (s *MetricsStore) Snapshot(_ context.Context, gateway domain.GatewayName) (
 	metrics := s.getOrCreate(gateway)
 	metrics.mu.Lock()
 	defer metrics.mu.Unlock()
-	return s.evaluateLocked(gateway, metrics, now), nil
+	return s.evaluateLocked(gateway, metrics, now, false), nil
 }
 
 func (s *MetricsStore) addSample(metrics *gatewayMetrics, now time.Time, success bool) {
@@ -86,7 +100,7 @@ func (s *MetricsStore) addSample(metrics *gatewayMetrics, now time.Time, success
 	}
 }
 
-func (s *MetricsStore) evaluateLocked(gateway domain.GatewayName, metrics *gatewayMetrics, now time.Time) domain.MetricsSnapshot {
+func (s *MetricsStore) evaluateLocked(gateway domain.GatewayName, metrics *gatewayMetrics, now time.Time, applyBlock bool) domain.MetricsSnapshot {
 	s.resetStaleBuckets(metrics, now)
 	successes, failures := 0, 0
 	for _, bucket := range metrics.buckets {
@@ -119,7 +133,7 @@ func (s *MetricsStore) evaluateLocked(gateway domain.GatewayName, metrics *gatew
 		metrics.blockedUntil = time.Time{}
 	}
 
-	if total >= s.config.MinSamples && rate < s.config.Threshold {
+	if applyBlock && total >= s.config.MinSamples && rate < s.config.Threshold {
 		metrics.blockedUntil = now.Add(s.config.Cooldown)
 		blockedUntil := metrics.blockedUntil
 		snapshot.Healthy = false
@@ -170,4 +184,10 @@ func (s *MetricsStore) getOrCreate(gateway domain.GatewayName) *gatewayMetrics {
 	metrics = &gatewayMetrics{buckets: make([]metricBucket, s.config.WindowSize)}
 	s.gateways[gateway] = metrics
 	return metrics
+}
+
+func (s *MetricsStore) get(gateway domain.GatewayName) *gatewayMetrics {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.gateways[gateway]
 }

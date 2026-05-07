@@ -88,3 +88,10 @@ type MetricsSnapshot struct {
 	BlockedUntil *time.Time  `json:"blocked_until,omitempty"`
 	Reason       string      `json:"reason,omitempty"`
 }
+
+type GatewayBlockStatus struct {
+	Gateway      GatewayName
+	Blocked      bool
+	BlockedUntil *time.Time
+	Reason       string
+}

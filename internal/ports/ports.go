@@ -22,6 +22,7 @@ type TransactionRepository interface {
 
 type MetricsStore interface {
 	Record(ctx context.Context, gateway domain.GatewayName, success bool) (domain.MetricsSnapshot, error)
+	BlockStatus(ctx context.Context, gateway domain.GatewayName) (domain.GatewayBlockStatus, error)
 	Snapshot(ctx context.Context, gateway domain.GatewayName) (domain.MetricsSnapshot, error)
 }
 

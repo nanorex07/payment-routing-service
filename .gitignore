@@ -2,6 +2,7 @@
 .cache/
 tmp/
 /api
+.gocache/
 .codex
 prd.md
 test.http

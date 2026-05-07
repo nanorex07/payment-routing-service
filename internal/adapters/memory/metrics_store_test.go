@@ -46,21 +46,68 @@ func TestMetricsStoreCircuitBreaker(t *testing.T) {
 	}
 
 	clock.now = clock.now.Add(29 * time.Minute)
-	snapshot, err = store.Snapshot(ctx, domain.GatewayRazorpay)
+	status, err := store.BlockStatus(ctx, domain.GatewayRazorpay)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Healthy {
+	if !status.Blocked {
 		t.Fatal("expected cooldown still active")
 	}
 
 	clock.now = clock.now.Add(2 * time.Minute)
-	snapshot, err = store.Snapshot(ctx, domain.GatewayRazorpay)
+	status, err = store.BlockStatus(ctx, domain.GatewayRazorpay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Blocked {
+		t.Fatal("expected cooldown expired")
+	}
+}
+
+func TestMetricsStoreBlockStatusDoesNotCreateGatewayMetrics(t *testing.T) {
+	clock := &fakeClock{now: time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC)}
+	store := NewMetricsStore(clock, DefaultMetricsConfig())
+
+	status, err := store.BlockStatus(context.Background(), domain.GatewayRazorpay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Blocked {
+		t.Fatal("expected new gateway to be unblocked")
+	}
+	if len(store.gateways) != 0 {
+		t.Fatalf("block status created gateway metrics: %d", len(store.gateways))
+	}
+}
+
+func TestMetricsStoreSnapshotDoesNotApplyNewBlock(t *testing.T) {
+	clock := &fakeClock{now: time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC)}
+	store := NewMetricsStore(clock, MetricsConfig{
+		WindowSize:     5,
+		BucketDuration: time.Minute,
+		Threshold:      0.90,
+		MinSamples:     1,
+		Cooldown:       30 * time.Minute,
+	})
+	metrics := store.getOrCreate(domain.GatewayPayU)
+	metrics.buckets[0] = metricBucket{
+		lastUpdated: clock.now.Truncate(time.Minute),
+		failures:    10,
+	}
+
+	snapshot, err := store.Snapshot(context.Background(), domain.GatewayPayU)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !snapshot.Healthy {
-		t.Fatal("expected cooldown expired")
+		t.Fatalf("snapshot applied block: %+v", snapshot)
+	}
+	status, err := store.BlockStatus(context.Background(), domain.GatewayPayU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Blocked {
+		t.Fatalf("snapshot wrote block status: %+v", status)
 	}
 }
 

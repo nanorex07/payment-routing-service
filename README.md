@@ -102,10 +102,10 @@ sequenceDiagram
         H-->>C: 409 Conflict
     else new order
         loop configured gateways
-            S->>M: Snapshot(gateway)
-            M-->>S: health + success rate + cooldown
+            S->>M: BlockStatus(gateway)
+            M-->>S: blocked/unblocked cooldown state
         end
-        S->>S: Select healthy gateway by cumulative weight
+        S->>S: Select unblocked gateway by cumulative weight
         S->>R: Create(pending transaction)
         S->>G: Initiate(mock provider call)
         S-->>H: transaction
@@ -393,8 +393,8 @@ Default gateway weights:
 Routing steps:
 
 1. Check if `order_id` already exists. If yes, reject with `409`.
-2. Fetch one health snapshot per configured gateway.
-3. Skip disabled or unhealthy gateways.
+2. Fetch only block status per configured gateway.
+3. Skip disabled or blocked gateways.
 4. Choose from remaining gateways using cumulative weighted selection.
 5. Persist a pending transaction.
 6. Call the mock gateway client.
@@ -409,7 +409,7 @@ Weighted routing example with default weights:
 ---
 ## Metrics Store
 
-The metrics store tracks recent gateway success/failure rates and owns circuit-breaker state. It is in-memory for this version, but it is isolated behind the `MetricsStore` port.
+The metrics store tracks recent gateway success/failure rates and owns circuit-breaker state. It is isolated behind the `MetricsStore` port and has in-memory and Redis implementations.
 
 Defaults:
 
@@ -451,20 +451,22 @@ index := (now / bucketDuration) % windowSize
 
 5. If the selected bucket is stale, reset it.
 6. Increment `successes` or `failures`.
-7. Evaluate health and return a snapshot.
+7. Evaluate health, apply cooldown if the threshold is breached, and return a snapshot.
 
-### Snapshot And Lazy Evaluation
+### Block Status And Snapshots
 
-`Snapshot(gateway)` also locks only one gateway. It resets stale buckets and calculates:
+Initiation uses `BlockStatus(gateway)`, which reads only the cooldown state. It does not scan buckets, reset stale counters, or create a gateway metrics object for new gateways.
+
+`Snapshot(gateway)` is for diagnostics and tests. It locks only one gateway in the in-memory implementation, resets stale buckets, and calculates:
 
 - total successes
 - total failures
 - total sample count
 - success rate
 - whether cooldown is active
-- whether success rate is below threshold
+- whether cooldown is active
 
-There is no background worker. Health is evaluated only when routing or callback handling needs it.
+There is no background worker. Cooldowns are applied by callback `Record` calls; routing only reads the already-applied block state.
 
 ### Bucket Reset Rule
 
@@ -491,7 +493,7 @@ The bucket count never grows. Old slots are reused in place after reset.
 
 ### Circuit Breaker
 
-After bucket counts are summed:
+After callback bucket counts are summed:
 
 1. If `blockedUntil` is in the future, gateway is unhealthy with reason `cooldown_active`.
 2. If cooldown expired, `blockedUntil` is cleared.
@@ -654,6 +656,19 @@ Current limitation:
 
 - Metrics disappear when process exits.
 - In a multi-process deployment, each process would have separate health state unless replaced with shared storage.
+
+### Redis Metrics Store
+
+Component: `internal/adapters/redis/metrics_store.go`
+
+What it does:
+
+- Uses one Redis string counter per gateway, bucket, and outcome.
+- Records callbacks and applies cooldown in one Lua script.
+- Uses TTLs for rolling-window bucket reset and cooldown expiry.
+- Keeps all keys for a gateway in one Redis Cluster hash slot.
+
+Set `REDIS_ADDR` to use Redis at runtime. Docker Compose starts Redis and sets `REDIS_ADDR=redis:6379` for the API service.
 
 ### Mock Gateway Clients
 
